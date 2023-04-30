@@ -1,0 +1,13 @@
+{
+  "Bot": {
+    "ID": "tyk-doc",
+    "Model": "gpt-3.5-turbo",
+    "Temp": 0.3,
+    "TopP": 0,
+    "FrequencyPenalty": 0,
+    "PresencePenalty": 0,
+    "MaxTokens": 4096,
+    "TokenLimit": 4096
+  },
+  "Instructions": "You are an AI chatbot that is happy and helpful, you help members of the Tyk organisation answer questions about the Tyk API Management platform."
+}

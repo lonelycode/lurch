@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/lonelycode/botMaker"
 	"github.com/sashabaranov/go-openai"
@@ -10,11 +11,75 @@ import (
 	"github.com/slack-go/slack/socketmode"
 	"log"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 )
 
+type Settings struct {
+	Bot          botMaker.BotSettings
+	Instructions string
+	template     string
+}
+
+func getSettings(dir string) (*Settings, error) {
+	cfgFile := filepath.Join(dir, "lurch.json")
+	promptTpl := filepath.Join(dir, "prompt.tpl")
+	_, err := os.Stat(cfgFile)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err := os.ReadFile(cfgFile)
+	if err != nil {
+		return nil, err
+	}
+
+	botSettings := &Settings{}
+	err = json.Unmarshal(cfg, botSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	// just in case
+	defaults := botMaker.NewBotSettings()
+	botSettings.Bot.EmbeddingModel = defaults.EmbeddingModel
+
+	_, err = os.Stat(promptTpl)
+	if err != nil {
+		return nil, err
+	}
+
+	tpl, err := os.ReadFile(promptTpl)
+	if err != nil {
+		return nil, err
+	}
+
+	botSettings.template = string(tpl)
+	return botSettings, nil
+}
+
 func main() {
+	if len(os.Args) < 2 {
+		log.Fatal("lurch requires at least one argument of a bot configuration, e.g. `./lurch ./bots/tyk`")
+	}
+
+	s, err := getSettings(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	lurch := &LurchBot{}
+	lurch.Init(s)
+	err = StartBot(lurch)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+func StartBot(lurch *LurchBot) error {
 	appToken := os.Getenv("SLACK_APP_TOKEN")
 	botToken := os.Getenv("SLACK_BOT_TOKEN")
 	if appToken == "" || botToken == "" {
@@ -34,8 +99,7 @@ func main() {
 		socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
 	)
 
-	lurch := &LurchBot{}
-	lurch.Init("tyk-doc")
+	IDPattern := regexp.MustCompile(`<@([A-Z0-9]+)>`)
 
 	go func() {
 		for evt := range client.Events {
@@ -56,7 +120,15 @@ func main() {
 					innerEvent := eventsAPIEvent.InnerEvent
 					switch ev := innerEvent.Data.(type) {
 					case *slackevents.AppMentionEvent:
-						message := strings.ReplaceAll(ev.Text, "<@U055QMW21DF>", "")
+						// Find all matches using the pattern
+						matches := IDPattern.FindAllStringSubmatch(ev.Text, -1)
+						message := ev.Text
+
+						// Remove userID from response
+						if len(matches) > 0 {
+							message = strings.ReplaceAll(message, matches[0][0], "")
+						}
+
 						message = strings.Trim(message, " ")
 						response, err := lurch.Chat(ev.User, message)
 						_, _, err = client.PostMessage(
@@ -77,8 +149,10 @@ func main() {
 
 	err := client.Run()
 	if err != nil {
-		log.Println(err)
+		return err
 	}
+
+	return nil
 }
 
 type LurchBot struct {
@@ -88,7 +162,7 @@ type LurchBot struct {
 	config        *botMaker.Config
 }
 
-func (l *LurchBot) Init(namespace string) {
+func (l *LurchBot) Init(settings *Settings) {
 	// Set up conversation history
 	l.Conversations = make(map[string][]*botMaker.RenderContext)
 	// Get the system config (API keys and Pinecone endpoint)
@@ -99,17 +173,7 @@ func (l *LurchBot) Init(namespace string) {
 	l.oai = botMaker.NewOAIClient(cfg.OpenAPIKey)
 
 	// Get the tuning for the bot, we'll use some defaults
-	l.settings = botMaker.NewBotSettings()
-
-	// We set the ID for the bot as this will be used when querying
-	// pinecone for context embeddings specifically for this bot -
-	// use different IDs for difference PC namespaces to create
-	// different context-flavours for bots
-	l.settings.ID = namespace
-	l.settings.Model = openai.GPT3Dot5Turbo
-	l.settings.Temp = 0.3
-	//l.settings.TopP = 0.4
-	l.settings.MaxTokens = 4096 // need to set this for 3.5 turbo
+	l.settings = &settings.Bot
 
 	// If adding context (additional data outside of GPTs training data), y
 	// you can attach a memory store to query
@@ -222,7 +286,7 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 			Content: resp,
 		})
 
-	return fmt.Sprintf("%s \n(contexts: %d, history: %d)",
+	return fmt.Sprintf("<@%s> %s \n(contexts: %d, history: %d)", with,
 		resp,
 		len(prompt.GetContextsForLastPrompt()), len(prompt.History)), nil
 
