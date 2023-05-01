@@ -243,6 +243,15 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 		return "OK, I've wiped all history of our conversation", nil
 	}
 
+	if message == "help" {
+		dat, err := os.ReadFile("help_response.md")
+		if err != nil {
+			return fmt.Sprint("hmm, I can't find my help response!"), nil
+		}
+
+		return string(dat), nil
+	}
+
 	if strings.HasPrefix(strings.ToLower(message), "learn this:") {
 		h, ok := l.Conversations[with]
 		if !ok {
