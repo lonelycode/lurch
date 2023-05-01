@@ -23,6 +23,15 @@ type Settings struct {
 	template     string
 }
 
+var respTpl string = `
+"<@{{.User}}> {{.Response}}
+{{ if .Titles }}*References:*
+{{ range .Titles }}> {{.}}
+{{end}}{{end}}> (contexts: {{.Contexts}}, history: {{.History}})"
+`
+
+var responseTemplate *template.Template
+
 func getSettings(dir string) (*Settings, error) {
 	cfgFile := filepath.Join(dir, "lurch.json")
 	promptTpl := filepath.Join(dir, "prompt.tpl")
@@ -66,6 +75,12 @@ func main() {
 	}
 
 	s, err := getSettings(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	responseTemplate = template.New("learn-tpl")
+	responseTemplate, err = responseTemplate.Parse(respTpl)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -295,8 +310,29 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 			Content: resp,
 		})
 
-	return fmt.Sprintf("<@%s> %s \n(contexts: %d, history: %d)", with,
-		resp,
-		len(prompt.GetContextsForLastPrompt()), len(prompt.History)), nil
+	fullResponse, err := l.renderResponse(with, resp, prompt)
+	if err != nil {
+		return fmt.Sprintf("I've encountered an error: %v", err), err
+	}
 
+	return fullResponse, nil
+
+}
+
+func (l *LurchBot) renderResponse(with, resp string, prompt *botMaker.BotPrompt) (string, error) {
+	dat := map[string]interface{}{
+		"User":     with,
+		"Response": resp,
+		"Titles":   prompt.ContextTitles,
+		"Contexts": len(prompt.GetContextsForLastPrompt()),
+		"History":  prompt.History,
+	}
+
+	var b bytes.Buffer
+	err := responseTemplate.Execute(&b, &dat)
+	if err != nil {
+		return "", err
+	}
+
+	return b.String(), nil
 }
