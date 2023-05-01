@@ -25,6 +25,7 @@ type Settings struct {
 
 var respTpl string = `
 "<@{{.User}}> {{.Response}}
+
 {{ if .Titles }}*References:*
 {{ range .Titles }}> {{.}}
 {{end}}{{end}}> (contexts: {{.Contexts}}, history: {{.History}})"
@@ -325,7 +326,7 @@ func (l *LurchBot) renderResponse(with, resp string, prompt *botMaker.BotPrompt)
 		"Response": resp,
 		"Titles":   prompt.ContextTitles,
 		"Contexts": len(prompt.GetContextsForLastPrompt()),
-		"History":  prompt.History,
+		"History":  len(prompt.History),
 	}
 
 	var b bytes.Buffer
