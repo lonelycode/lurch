@@ -24,7 +24,7 @@ type Settings struct {
 }
 
 var respTpl string = `
-"<@{{.User}}> {{.Response}}
+<@{{.User}}> {{.Response}}
 
 {{ if .Titles }}*References:*
 {{ range .Titles }}> {{.}}
