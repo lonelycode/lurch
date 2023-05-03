@@ -225,6 +225,8 @@ github.com/levigross/exp-html v0.0.0-20120902181939-8df60c69a8f5 h1:W7p+m/AECTL3
 github.com/levigross/exp-html v0.0.0-20120902181939-8df60c69a8f5/go.mod h1:QMe2wuKJ0o7zIVE8AqiT8rd8epmm6WDIZ2wyuBqYPzM=
 github.com/lonelycode/botMaker v0.0.0-20230502022945-86d6f8547627 h1:uRnMbWCNYyvM57rghmr5JWusz1tROfdAhePHfflSgT0=
 github.com/lonelycode/botMaker v0.0.0-20230502022945-86d6f8547627/go.mod h1:OODUt3jdEsDExCsWNscfj3fcUQHO/l9CxS8XGkx3koA=
+github.com/lonelycode/botMaker v0.0.0-20230502201529-ef3de28ed2eb h1:U0AU0sgSxSAAgcPLNGmoMvgdzIJzx+HOPS03o6nXedk=
+github.com/lonelycode/botMaker v0.0.0-20230502201529-ef3de28ed2eb/go.mod h1:OODUt3jdEsDExCsWNscfj3fcUQHO/l9CxS8XGkx3koA=
 github.com/mattn/go-runewidth v0.0.3/go.mod h1:LwmH8dsx7+W8Uxz3IHJYH5QSwggIsqBzpuz5H//U1FU=
 github.com/mattn/go-runewidth v0.0.7/go.mod h1:H031xJmbD/WCDINGzjvQ9THkh0rPKHF+m2gUSrubnMI=
 github.com/mattn/go-runewidth v0.0.9/go.mod h1:H031xJmbD/WCDINGzjvQ9THkh0rPKHF+m2gUSrubnMI=

@@ -3,7 +3,7 @@ module lurch
 go 1.20
 
 require (
-	github.com/lonelycode/botMaker v0.0.0-20230502022945-86d6f8547627
+	github.com/lonelycode/botMaker v0.0.0-20230502201529-ef3de28ed2eb
 	github.com/sashabaranov/go-openai v1.9.0
 	github.com/slack-go/slack v0.12.2
 )

@@ -11,9 +11,11 @@ import (
 	"github.com/slack-go/slack/socketmode"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"text/template"
 )
 
@@ -28,7 +30,7 @@ var respTpl string = `
 
 {{ if .Titles }}*References:*
 {{ range .Titles }}> {{.}}
-{{end}}{{end}}> (contexts: {{.Contexts}}, history: {{.History}})"
+{{end}}{{end}}> (contexts: {{.Contexts}}, history: {{.History}})
 `
 
 var responseTemplate *template.Template
@@ -86,8 +88,24 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var gracefulStop = make(chan os.Signal)
+	signal.Notify(gracefulStop, syscall.SIGTERM)
+	signal.Notify(gracefulStop, syscall.SIGINT)
+
 	lurch := &LurchBot{}
 	lurch.Init(s)
+
+	go func() {
+		sig := <-gracefulStop
+		fmt.Printf("caught sig: %+v\n", sig)
+		fmt.Println("marking bot as offline")
+		err := lurch.SlackClient.SetUserPresence("away")
+		if err != nil {
+			log.Println(err)
+		}
+		os.Exit(0)
+	}()
+
 	err = StartBot(lurch)
 	if err != nil {
 		log.Fatal(err)
@@ -147,9 +165,14 @@ func StartBot(lurch *LurchBot) error {
 
 						message = strings.Trim(message, " ")
 						response, err := lurch.Chat(ev.User, message)
+						if err != nil {
+							log.Fatal(err)
+						}
 						_, _, err = client.PostMessage(
 							ev.Channel,
-							slack.MsgOptionText(response, false))
+							slack.MsgOptionText(response, false),
+							slack.MsgOptionTS(ev.TimeStamp),
+							slack.MsgOptionDisableLinkUnfurl())
 						if err != nil {
 							log.Fatalf("failed posting message: %v", err)
 						}
@@ -157,11 +180,15 @@ func StartBot(lurch *LurchBot) error {
 				default:
 					client.Debugf("unsupported Events API event received")
 				}
+			case socketmode.EventTypeHello:
+				//
 			default:
 				fmt.Fprintf(os.Stderr, "Unexpected event type received: %s\n", evt.Type)
 			}
 		}
 	}()
+
+	lurch.SlackClient = client
 
 	err := client.Run()
 	if err != nil {
@@ -172,10 +199,13 @@ func StartBot(lurch *LurchBot) error {
 }
 
 type LurchBot struct {
-	Conversations map[string][]*botMaker.RenderContext
-	settings      *botMaker.BotSettings
-	oai           *botMaker.OAIClient
-	config        *botMaker.Config
+	Conversations  map[string][]*botMaker.RenderContext
+	SlackClient    *socketmode.Client
+	settings       *botMaker.BotSettings
+	oai            *botMaker.OAIClient
+	config         *botMaker.Config
+	promptTemplate string
+	instructions   string
 }
 
 func (l *LurchBot) Init(settings *Settings) {
@@ -197,6 +227,9 @@ func (l *LurchBot) Init(settings *Settings) {
 		APIEndpoint: cfg.PineconeEndpoint,
 		APIKey:      cfg.PineconeKey,
 	}
+
+	l.promptTemplate = settings.template
+	l.instructions = settings.Instructions
 
 }
 
@@ -284,9 +317,9 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 	}
 
 	// We populate the Body with the query from the user
-	prompt := botMaker.NewBotPrompt("", l.oai)
+	prompt := botMaker.NewBotPrompt(l.promptTemplate, l.oai)
 	// Set an initial instruction to the bot
-	prompt.Instructions = "You are an AI chatbot that is happy and helpful, you help members of the Tyk organisation answer questions about the Tyk API Management platform and it's dependencies Redis, MongoDB and Postgres"
+	prompt.Instructions = l.instructions
 	prompt.Body = message
 
 	history, ok := l.Conversations[with]
