@@ -1,4 +1,4 @@
-Hi! I'm Lurch, you can use me to ask questions about specific things, to ask me questions, simply @me with your question and I will do my best to respond, please be patient though, it can take a little while to generate an answer for you.
+Hi!, You can use me to ask questions about specific things, to ask me questions, simply @me with your question and I will do my best to respond, please be patient though, it can take a little while to generate an answer for you.
 
 I have two main *commands* that you can use as well:
 
