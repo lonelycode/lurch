@@ -35,43 +35,6 @@ var respTpl string = `
 
 var responseTemplate *template.Template
 
-func getSettings(dir string) (*Settings, error) {
-	cfgFile := filepath.Join(dir, "lurch.json")
-	promptTpl := filepath.Join(dir, "prompt.tpl")
-	_, err := os.Stat(cfgFile)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg, err := os.ReadFile(cfgFile)
-	if err != nil {
-		return nil, err
-	}
-
-	botSettings := &Settings{}
-	err = json.Unmarshal(cfg, botSettings)
-	if err != nil {
-		return nil, err
-	}
-
-	// just in case
-	defaults := botMaker.NewBotSettings()
-	botSettings.Bot.EmbeddingModel = defaults.EmbeddingModel
-
-	_, err = os.Stat(promptTpl)
-	if err != nil {
-		return nil, err
-	}
-
-	tpl, err := os.ReadFile(promptTpl)
-	if err != nil {
-		return nil, err
-	}
-
-	botSettings.template = string(tpl)
-	return botSettings, nil
-}
-
 func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("lurch requires at least one argument of a bot configuration, e.g. `./lurch ./bots/tyk`")
@@ -111,6 +74,43 @@ func main() {
 		log.Fatal(err)
 	}
 
+}
+
+func getSettings(dir string) (*Settings, error) {
+	cfgFile := filepath.Join(dir, "lurch.json")
+	promptTpl := filepath.Join(dir, "prompt.tpl")
+	_, err := os.Stat(cfgFile)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err := os.ReadFile(cfgFile)
+	if err != nil {
+		return nil, err
+	}
+
+	botSettings := &Settings{}
+	err = json.Unmarshal(cfg, botSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	// just in case
+	defaults := botMaker.NewBotSettings()
+	botSettings.Bot.EmbeddingModel = defaults.EmbeddingModel
+
+	_, err = os.Stat(promptTpl)
+	if err != nil {
+		return nil, err
+	}
+
+	tpl, err := os.ReadFile(promptTpl)
+	if err != nil {
+		return nil, err
+	}
+
+	botSettings.template = string(tpl)
+	return botSettings, nil
 }
 
 func StartBot(lurch *LurchBot) error {
@@ -267,7 +267,8 @@ func (l *LurchBot) Learn(history []*botMaker.RenderContext, with string) (int, e
 		return 0, err
 	}
 
-	count, err := brain.Learn(b.String(), fmt.Sprintf("conversation with %v", with))
+	// We're using sentence based learning
+	count, err := brain.Learn(b.String(), fmt.Sprintf("conversation with %v", with), true)
 	if err != nil {
 		return 0, err
 	}
