@@ -7,8 +7,13 @@ import (
 	"github.com/sashabaranov/go-openai"
 	"github.com/slack-go/slack/socketmode"
 	"io"
+	"io/ioutil"
+	"jaytaylor.com/html2text"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 )
@@ -22,6 +27,17 @@ type LurchBot struct {
 	promptTemplate string
 	instructions   string
 }
+
+var SummaryTPL string = `{{.Instructions}}
+{{ if .ContextToRender }}Use the following context to help with your response:
+{{ range $ctx := .ContextToRender }}
+{{$ctx}}
+{{ end }}{{ end }}
+====
+user: Summarize the following content:
+{{.Body}}
+{{ if .DesiredFormat }}Provide your output using the following format:
+{{.DesiredFormat}}{{ end }}`
 
 func (l *LurchBot) Init(settings *Settings) {
 	// Set up conversation history
@@ -122,6 +138,123 @@ func writeToFile(filename string, text string) error {
 	return nil
 }
 
+func DownloadHTMLFromWebsite(url string) ([]byte, error) {
+	// Create a new http request with the user-agent header set to Firefox
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:58.0) Gecko/20100101 Firefox/58.0")
+
+	// Send the request and get the response
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Check if status code is not 200 OK
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("response status code is not 200 OK")
+	}
+
+	// Read the body of the response and return it
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+func ConvertHTMLToText(html string) (string, error) {
+	text, err := html2text.FromString(html, html2text.Options{TextOnly: true})
+	if err != nil {
+		return "", err
+	}
+
+	return text, nil
+}
+
+func (l *LurchBot) Summarize(data string) (string, error) {
+	// We populate the Body with the query from the user
+	prompt := botMaker.NewBotPrompt(SummaryTPL, l.oai)
+	// Set an initial instruction to the bot
+	prompt.Instructions = "you are an AI copywriting assistant, you help summarize content into a maximum of 500 words."
+	prompt.Body = data
+
+	// make the OpenAI query, the prompt object will render the query
+	// according to its template with the context embeddings pulled from Pinecone
+	resp, _, err := l.oai.CallUnifiedCompletionAPI(l.settings, prompt)
+	if err != nil {
+		return fmt.Sprintf("I've encountered an error: %v", err), err
+	}
+
+	return resp, nil
+}
+
+func extractHyperlink(text string) (string, bool) {
+	// Define a regular expression that matches hyperlinks
+	re := regexp.MustCompile(`\bhttps?://\S+\b`)
+
+	// Find the first hyperlink in the text
+	hyperlink := re.FindString(text)
+
+	// Check if a hyperlink was found
+	if hyperlink == "" {
+		return "", false
+	}
+
+	return hyperlink, true
+
+}
+
+func (l *LurchBot) Expand(message string) (string, string) {
+	link, hasLink := extractHyperlink(message)
+	if !hasLink {
+		return "", ""
+	}
+
+	data, err := DownloadHTMLFromWebsite(link)
+	if err != nil {
+		log.Println(err)
+		return "", ""
+	}
+
+	text, err := ConvertHTMLToText(string(data))
+	if err != nil {
+		log.Println(err)
+		return "", ""
+	}
+
+	// If the text is more than half the token limit, we will need to summarize
+	textTokens, err := botMaker.CountTokens(text, l.settings.Model)
+	if err != nil {
+		log.Println(err)
+		return "", ""
+	}
+
+	if (l.settings.TokenLimit / 3) < textTokens {
+		log.Println("[expand] page too large, attempting to summarize")
+		// If it can't fit at all then don't bother
+		if l.settings.TokenLimit < textTokens {
+			log.Println("[expand] page too large to summarize")
+			return link, "The website content was too large to process, tell the user that you couldn't summarize the page"
+		}
+
+		summary, err := l.Summarize(text)
+		if err != nil {
+			log.Println(err)
+			return link, fmt.Sprintf("couldn't summarize page: %v", err)
+		}
+
+		fmt.Println(summary)
+		return link, summary
+	}
+
+	return link, text
+}
+
 func (l *LurchBot) Chat(with, message string) (string, error) {
 	// Remember the response from the user
 	oldBody := message
@@ -158,6 +291,15 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 		l.Conversations[with] = make([]*botMaker.RenderContext, 0)
 		return fmt.Sprintf("Saved %v items, I'll now wipe this exchange from my short term memory", count), nil
 
+	}
+
+	// pre-process the message
+	link, extraContext := l.Expand(message)
+	if link != "" {
+		if extraContext != "" {
+			message = fmt.Sprintf(
+				"%s\nThe web page referenced in this message (%s) contains the following content:\n %s\n===\n", message, link, extraContext)
+		}
 	}
 
 	// We populate the Body with the query from the user

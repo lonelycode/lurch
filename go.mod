@@ -25,6 +25,7 @@ require (
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/jaytaylor/html2text v0.0.0-20230321000545-74c2419ad056 // indirect
 	github.com/jdkato/prose/v2 v2.0.0 // indirect
+	github.com/k3a/html2text v1.1.0 // indirect
 	github.com/levigross/exp-html v0.0.0-20120902181939-8df60c69a8f5 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/mingrammer/commonregex v1.0.1 // indirect
@@ -41,4 +42,5 @@ require (
 	gonum.org/v1/gonum v0.12.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/neurosnap/sentences.v1 v1.0.7 // indirect
+	jaytaylor.com/html2text v0.0.0-20230321000545-74c2419ad056 // indirect
 )

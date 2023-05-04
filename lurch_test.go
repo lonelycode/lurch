@@ -12,3 +12,12 @@ func TestWriteToFile(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDownloadHTMLFromWebsite(t *testing.T) {
+	data, err := DownloadHTMLFromWebsite("https://tyk.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println(string(data))
+}
