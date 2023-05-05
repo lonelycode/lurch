@@ -104,7 +104,6 @@ func (l *LurchBot) Learn(history []*botMaker.RenderContext, with string) (int, e
 		return 0, err
 	}
 
-	fmt.Println(b.String())
 	fmt.Printf("embeddings: %v\n", count)
 
 	err = writeToFile(filepath.Join("learn", fmt.Sprintf("conversation-with-%s", with)), b.String())
@@ -234,7 +233,8 @@ func (l *LurchBot) Expand(message string) (string, string) {
 		return "", ""
 	}
 
-	if (l.settings.TokenLimit / 3) < textTokens {
+	fmt.Printf("text tokens: %v, limit: %v\n", textTokens, float32(l.settings.TokenLimit)*0.75)
+	if (float32(l.settings.TokenLimit) * 0.8) < float32(textTokens) {
 		log.Println("[expand] page too large, attempting to summarize")
 		// If it can't fit at all then don't bother
 		if l.settings.TokenLimit < textTokens {
@@ -248,7 +248,6 @@ func (l *LurchBot) Expand(message string) (string, string) {
 			return link, fmt.Sprintf("couldn't summarize page: %v", err)
 		}
 
-		fmt.Println(summary)
 		return link, summary
 	}
 
@@ -295,10 +294,11 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 
 	// pre-process the message
 	link, extraContext := l.Expand(message)
+	expanded := message
 	if link != "" {
 		if extraContext != "" {
-			message = fmt.Sprintf(
-				"%s\nThe web page referenced in this message (%s) contains the following content:\n %s\n===\n", message, link, extraContext)
+			expanded = fmt.Sprintf(
+				"%s\nThe link mentioned earlier contains the following content:\n%s\n", message, extraContext)
 		}
 	}
 
@@ -306,7 +306,7 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 	prompt := botMaker.NewBotPrompt(l.promptTemplate, l.oai)
 	// Set an initial instruction to the bot
 	prompt.Instructions = l.instructions
-	prompt.Body = message
+	prompt.Body = expanded
 
 	history, ok := l.Conversations[with]
 	if !ok {

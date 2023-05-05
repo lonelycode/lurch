@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"github.com/lonelycode/botMaker"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Settings struct {
@@ -36,6 +38,11 @@ func getSettings(dir string) (*Settings, error) {
 	defaults := botMaker.NewBotSettings()
 	botSettings.Bot.EmbeddingModel = defaults.EmbeddingModel
 
+	err = checkInstructions(botSettings)
+	if err != nil {
+		return nil, err
+	}
+
 	_, err = os.Stat(promptTpl)
 	if err != nil {
 		return nil, err
@@ -48,4 +55,18 @@ func getSettings(dir string) (*Settings, error) {
 
 	botSettings.template = string(tpl)
 	return botSettings, nil
+}
+
+// checkInstructions will check the `s.Instructions` property for a `file://` reference,
+// if found it will read the file and fill the property with the contents of the file.
+func checkInstructions(s *Settings) error {
+	if strings.HasPrefix(s.Instructions, "file://") {
+		filename := strings.TrimPrefix(s.Instructions, "file://")
+		b, err := ioutil.ReadFile(filename)
+		if err != nil {
+			return err
+		}
+		s.Instructions = string(b)
+	}
+	return nil
 }
