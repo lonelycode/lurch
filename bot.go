@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/lonelycode/botMaker"
+	"github.com/pkoukk/tiktoken-go"
 	"github.com/sashabaranov/go-openai"
 	"github.com/slack-go/slack/socketmode"
 	"io"
@@ -29,15 +30,8 @@ type LurchBot struct {
 }
 
 var SummaryTPL string = `{{.Instructions}}
-{{ if .ContextToRender }}Use the following context to help with your response:
-{{ range $ctx := .ContextToRender }}
-{{$ctx}}
-{{ end }}{{ end }}
-====
 user: Summarize the following content:
-{{.Body}}
-{{ if .DesiredFormat }}Provide your output using the following format:
-{{.DesiredFormat}}{{ end }}`
+{{.Body}}`
 
 func (l *LurchBot) Init(settings *Settings) {
 	// Set up conversation history
@@ -179,12 +173,15 @@ func (l *LurchBot) Summarize(data string) (string, error) {
 	// We populate the Body with the query from the user
 	prompt := botMaker.NewBotPrompt(SummaryTPL, l.oai)
 	// Set an initial instruction to the bot
-	prompt.Instructions = "you are an AI copywriting assistant, you help summarize content into a maximum of 500 words."
+	prompt.Instructions = "you are an AI copywriting assistant, you help summarize the following content into a maximum of 500 words."
 	prompt.Body = data
+
+	noMemSettings, _ := getSettings(os.Args[1])
+	noMemSettings.Bot.Memory = nil
 
 	// make the OpenAI query, the prompt object will render the query
 	// according to its template with the context embeddings pulled from Pinecone
-	resp, _, err := l.oai.CallUnifiedCompletionAPI(l.settings, prompt)
+	resp, _, err := l.oai.CallUnifiedCompletionAPI(&noMemSettings.Bot, prompt)
 	if err != nil {
 		return fmt.Sprintf("I've encountered an error: %v", err), err
 	}
@@ -208,6 +205,23 @@ func extractHyperlink(text string) (string, bool) {
 
 }
 
+var SummarizerTokenCutoff = 4000
+
+func CanSummarize(text string, model string) bool {
+	tke, err := tiktoken.EncodingForModel(model)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+
+	tkn := tke.Encode(text, nil, nil)
+	if len(tkn) > SummarizerTokenCutoff {
+		return false
+	}
+
+	return true
+}
+
 func (l *LurchBot) Expand(message string) (string, string) {
 	link, hasLink := extractHyperlink(message)
 	if !hasLink {
@@ -226,32 +240,31 @@ func (l *LurchBot) Expand(message string) (string, string) {
 		return "", ""
 	}
 
-	// If the text is more than half the token limit, we will need to summarize
-	textTokens, err := botMaker.CountTokens(text, l.settings.Model)
+	// compress that sh*t
+	text = strings.ReplaceAll(text, "\n\n", "")
+	text = strings.ReplaceAll(text, "\n", "")
+	text = strings.ReplaceAll(text, "  ", " ")
+
+	sumText := text
+	if !CanSummarize(text, l.settings.Model) {
+		log.Println("text too long to summarize, trying shorter version")
+		for !CanSummarize(sumText, l.settings.Model) {
+			rem := float32(len(sumText)) * 0.7
+			if rem < 1 {
+				log.Println("[expand] page too large to summarize")
+				return link, "The website content was too large to process, tell the user that you couldn't summarize the page"
+			}
+			sumText = sumText[:int(rem)]
+		}
+	}
+
+	summary, err := l.Summarize(sumText)
 	if err != nil {
 		log.Println(err)
-		return "", ""
+		return link, fmt.Sprintf("couldn't summarize page: %v", err)
 	}
 
-	fmt.Printf("text tokens: %v, limit: %v\n", textTokens, float32(l.settings.TokenLimit)*0.75)
-	if (float32(l.settings.TokenLimit) * 0.8) < float32(textTokens) {
-		log.Println("[expand] page too large, attempting to summarize")
-		// If it can't fit at all then don't bother
-		if l.settings.TokenLimit < textTokens {
-			log.Println("[expand] page too large to summarize")
-			return link, "The website content was too large to process, tell the user that you couldn't summarize the page"
-		}
-
-		summary, err := l.Summarize(text)
-		if err != nil {
-			log.Println(err)
-			return link, fmt.Sprintf("couldn't summarize page: %v", err)
-		}
-
-		return link, summary
-	}
-
-	return link, text
+	return link, summary
 }
 
 func (l *LurchBot) Chat(with, message string) (string, error) {
