@@ -25,6 +25,7 @@ type LurchBot struct {
 	settings       *botMaker.BotSettings
 	oai            *botMaker.OAIClient
 	config         *botMaker.Config
+	help           string
 	promptTemplate string
 	instructions   string
 }
@@ -45,7 +46,7 @@ func (l *LurchBot) Init(settings *Settings) {
 
 	// Get the tuning for the bot, we'll use some defaults
 	l.settings = &settings.Bot
-
+	l.help = settings.Help
 	// If adding context (additional data outside of GPTs training data), y
 	// you can attach a memory store to query
 	l.settings.Memory = &botMaker.Pinecone{
@@ -282,12 +283,20 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 	}
 
 	if message == "help" {
-		dat, err := os.ReadFile("help_response.md")
-		if err != nil {
-			return fmt.Sprint("hmm, I can't find my help response!"), nil
+		helpMsg := l.help
+		if strings.HasPrefix(l.help, "file://") {
+			f := strings.ReplaceAll(l.help, "file://", "")
+			dat, err := os.ReadFile(f)
+			if err != nil {
+				return fmt.Sprint("hmm, I can't find my help response!"), nil
+			}
+			return string(dat), nil
+		} else if l.help == "" {
+			return "I am a but a simple chat-bot, here to serve.", nil
 		}
 
-		return string(dat), nil
+		return helpMsg, nil
+
 	}
 
 	if strings.HasPrefix(strings.ToLower(message), "learn this:") {

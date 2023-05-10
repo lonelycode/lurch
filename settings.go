@@ -12,6 +12,7 @@ import (
 type Settings struct {
 	Bot          botMaker.BotSettings
 	Instructions string
+	Help         string
 	template     string
 }
 

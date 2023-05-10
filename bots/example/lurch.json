@@ -1,0 +1,14 @@
+{
+  "Bot": {
+    "ID": "doc",
+    "Model": "gpt-3.5-turbo",
+    "Temp": 0.0,
+    "TopP": 0,
+    "FrequencyPenalty": 0,
+    "PresencePenalty": 0,
+    "MaxTokens": 4096,
+    "TokenLimit": 4096
+  },
+  "Help": "file://bots/example/help_response.md",
+  "Instructions": "file://bots/example/instructions.md"
+}
