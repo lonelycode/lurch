@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/slack-go/slack"
-	"github.com/slack-go/slack/slackevents"
-	"github.com/slack-go/slack/socketmode"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
+	"github.com/slack-go/slack/socketmode"
 )
 
 func handleEvents(client *socketmode.Client, lurch *LurchBot) {
@@ -55,7 +56,8 @@ func handleAppMentionEvent(lurch *LurchBot, client *socketmode.Client, ev *slack
 	message = strings.Trim(message, " ")
 	response, err := lurch.Chat(ev.User, message)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("failed to call chat: %v", err)
+		response = err.Error()
 	}
 	_, _, err = client.PostMessage(
 		ev.Channel,
@@ -63,6 +65,6 @@ func handleAppMentionEvent(lurch *LurchBot, client *socketmode.Client, ev *slack
 		slack.MsgOptionTS(ev.TimeStamp),
 		slack.MsgOptionDisableLinkUnfurl())
 	if err != nil {
-		log.Fatalf("failed posting message: %v", err)
+		log.Printf("failed posting message: %v", err)
 	}
 }

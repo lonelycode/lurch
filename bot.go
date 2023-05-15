@@ -3,13 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/lonelycode/botMaker"
-	"github.com/pkoukk/tiktoken-go"
-	"github.com/sashabaranov/go-openai"
-	"github.com/slack-go/slack/socketmode"
 	"io"
 	"io/ioutil"
-	"jaytaylor.com/html2text"
 	"log"
 	"net/http"
 	"os"
@@ -17,17 +12,24 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+
+	"github.com/lonelycode/botMaker"
+	"github.com/pkoukk/tiktoken-go"
+	"github.com/sashabaranov/go-openai"
+	"github.com/slack-go/slack/socketmode"
+	"jaytaylor.com/html2text"
 )
 
 type LurchBot struct {
-	Conversations  map[string][]*botMaker.RenderContext
-	SlackClient    *socketmode.Client
-	settings       *botMaker.BotSettings
-	oai            *botMaker.OAIClient
-	config         *botMaker.Config
-	help           string
-	promptTemplate string
-	instructions   string
+	Conversations      map[string]*RollingWindow
+	SlackClient        *socketmode.Client
+	ConversationWindow int
+	settings           *botMaker.BotSettings
+	oai                *botMaker.OAIClient
+	config             *botMaker.Config
+	help               string
+	promptTemplate     string
+	instructions       string
 }
 
 var SummaryTPL string = `{{.Instructions}}
@@ -36,7 +38,12 @@ user: Summarize the following content:
 
 func (l *LurchBot) Init(settings *Settings) {
 	// Set up conversation history
-	l.Conversations = make(map[string][]*botMaker.RenderContext)
+	l.Conversations = make(map[string]*RollingWindow)
+	l.ConversationWindow = settings.ConversationWindow
+	if l.ConversationWindow == 0 {
+		l.ConversationWindow = 5
+	}
+
 	// Get the system config (API keys and Pinecone endpoint)
 	cfg := botMaker.NewConfigFromEnv()
 	l.config = cfg
@@ -47,11 +54,14 @@ func (l *LurchBot) Init(settings *Settings) {
 	// Get the tuning for the bot, we'll use some defaults
 	l.settings = &settings.Bot
 	l.help = settings.Help
-	// If adding context (additional data outside of GPTs training data), y
-	// you can attach a memory store to query
-	l.settings.Memory = &botMaker.Pinecone{
-		APIEndpoint: cfg.PineconeEndpoint,
-		APIKey:      cfg.PineconeKey,
+
+	// If adding context (additional data outside GPTs training data),
+	// you can attach a memory store to query, only do so if a namespace is present
+	if l.settings.ID != "" {
+		l.settings.Memory = &botMaker.Pinecone{
+			APIEndpoint: cfg.PineconeEndpoint,
+			APIKey:      cfg.PineconeKey,
+		}
 	}
 
 	l.promptTemplate = settings.template
@@ -271,14 +281,19 @@ func (l *LurchBot) Expand(message string) (string, string) {
 func (l *LurchBot) Chat(with, message string) (string, error) {
 	// Remember the response from the user
 	oldBody := message
-	l.Conversations[with] = append(l.Conversations[with],
-		&botMaker.RenderContext{
-			Role:    openai.ChatMessageRoleUser,
-			Content: oldBody,
-		})
+
+	_, ok := l.Conversations[with]
+	if !ok {
+		l.Conversations[with] = NewRollingWindow(l.ConversationWindow)
+	}
+
+	l.Conversations[with].Append(&botMaker.RenderContext{
+		Role:    openai.ChatMessageRoleUser,
+		Content: oldBody,
+	})
 
 	if message == "reset" {
-		l.Conversations[with] = make([]*botMaker.RenderContext, 0)
+		l.Conversations[with] = NewRollingWindow(l.ConversationWindow)
 		return "OK, I've wiped all history of our conversation", nil
 	}
 
@@ -304,12 +319,12 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 		if !ok {
 			return "hmmm, I can't find who to learn from...", nil
 		}
-		count, err := l.Learn(h, with)
+		count, err := l.Learn(h.Iterate(), with)
 		if err != nil {
 			return fmt.Sprintf("something went wrong with my brain: %v", err), err
 		}
 
-		l.Conversations[with] = make([]*botMaker.RenderContext, 0)
+		l.Conversations[with] = NewRollingWindow(l.ConversationWindow)
 		return fmt.Sprintf("Saved %v items, I'll now wipe this exchange from my short term memory", count), nil
 
 	}
@@ -332,11 +347,11 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 
 	history, ok := l.Conversations[with]
 	if !ok {
-		l.Conversations[with] = make([]*botMaker.RenderContext, 0)
+		l.Conversations[with] = NewRollingWindow(l.ConversationWindow)
 	}
 
 	// Populate chat history for this user
-	prompt.History = history
+	prompt.History = history.Iterate()
 
 	// make the OpenAI query, the prompt object will render the query
 	// according to its template with the context embeddings pulled from Pinecone
@@ -346,7 +361,7 @@ func (l *LurchBot) Chat(with, message string) (string, error) {
 	}
 
 	// save the response from the bot
-	l.Conversations[with] = append(l.Conversations[with],
+	l.Conversations[with].Append(
 		&botMaker.RenderContext{
 			Role:    openai.ChatMessageRoleAssistant,
 			Content: resp,
@@ -377,4 +392,34 @@ func (l *LurchBot) renderResponse(with, resp string, prompt *botMaker.BotPrompt)
 	}
 
 	return b.String(), nil
+}
+
+type RollingWindow struct {
+	size    int
+	current int
+	buffer  []*botMaker.RenderContext
+}
+
+func NewRollingWindow(size int) *RollingWindow {
+	return &RollingWindow{
+		size:    size,
+		current: 0,
+		buffer:  make([]*botMaker.RenderContext, size),
+	}
+}
+
+func (rw *RollingWindow) Append(obj *botMaker.RenderContext) {
+	rw.buffer[rw.current] = obj
+	rw.current = (rw.current + 1) % rw.size
+}
+
+func (rw *RollingWindow) Iterate() []*botMaker.RenderContext {
+	result := make([]*botMaker.RenderContext, 0, rw.size)
+	for i := 0; i < rw.size; i++ {
+		index := (rw.current + i) % rw.size
+		if rw.buffer[index] != nil {
+			result = append(result, rw.buffer[index])
+		}
+	}
+	return result
 }

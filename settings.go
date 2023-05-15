@@ -2,18 +2,20 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/lonelycode/botMaker"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lonelycode/botMaker"
 )
 
 type Settings struct {
-	Bot          botMaker.BotSettings
-	Instructions string
-	Help         string
-	template     string
+	Bot                botMaker.BotSettings
+	Instructions       string
+	Help               string
+	ConversationWindow int
+	template           string
 }
 
 func getSettings(dir string) (*Settings, error) {

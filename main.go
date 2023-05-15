@@ -1,15 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"github.com/slack-go/slack"
-	"github.com/slack-go/slack/socketmode"
 	"log"
 	"os"
 	"os/signal"
 	"regexp"
 	"syscall"
 	"text/template"
+
+	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/socketmode"
 )
 
 var respTpl string = `
@@ -39,23 +41,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var gracefulStop = make(chan os.Signal)
-	signal.Notify(gracefulStop, syscall.SIGTERM)
-	signal.Notify(gracefulStop, syscall.SIGINT)
-
 	lurch := &LurchBot{}
 	lurch.Init(s)
-
-	go func() {
-		sig := <-gracefulStop
-		fmt.Printf("caught sig: %+v\n", sig)
-		fmt.Println("marking bot as offline")
-		err := lurch.SlackClient.SetUserPresence("away")
-		if err != nil {
-			log.Println(err)
-		}
-		os.Exit(0)
-	}()
 
 	err = StartBot(lurch)
 	if err != nil {
@@ -86,6 +73,28 @@ func StartBot(lurch *LurchBot) error {
 
 	lurch.SlackClient = client
 
+	if len(os.Args) == 3 {
+		if os.Args[2] == "chat" {
+			handleChatinterface(lurch)
+			return nil
+		}
+	}
+
+	var gracefulStop = make(chan os.Signal)
+	signal.Notify(gracefulStop, syscall.SIGTERM)
+	signal.Notify(gracefulStop, syscall.SIGINT)
+
+	go func() {
+		sig := <-gracefulStop
+		fmt.Printf("caught sig: %+v\n", sig)
+		fmt.Println("marking bot as offline")
+		err := lurch.SlackClient.SetUserPresence("away")
+		if err != nil {
+			log.Println(err)
+		}
+		os.Exit(0)
+	}()
+
 	go handleEvents(client, lurch)
 
 	err := client.Run()
@@ -94,4 +103,21 @@ func StartBot(lurch *LurchBot) error {
 	}
 
 	return nil
+}
+
+func handleChatinterface(lurch *LurchBot) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("\nInput: ")
+		text, _ := reader.ReadString('\n')
+
+		response, err := lurch.Chat("User", text)
+		if err != nil {
+			log.Printf("failed to call chat: %v", err)
+			response = err.Error()
+		}
+
+		// Show the response
+		fmt.Printf("\n" + response + "\n\n")
+	}
 }
