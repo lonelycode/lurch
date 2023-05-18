@@ -30,7 +30,7 @@ func handleEvents(client *socketmode.Client, lurch *LurchBot) {
 				innerEvent := eventsAPIEvent.InnerEvent
 				switch ev := innerEvent.Data.(type) {
 				case *slackevents.AppMentionEvent:
-					handleAppMentionEvent(lurch, client, ev)
+					go handleAppMentionEvent(lurch, client, ev)
 				}
 			default:
 				client.Debugf("unsupported Events API event received")
